@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+    
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, user-scalable=no
+        initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0" />
+        <title>SnooP Beta</title>
+        
+        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js"></script>
+        <script>
+            // Redirect console.log when running from Evothings Workbench.
+            if (window.hyper && window.hyper.log) { console.log = hyper.log }
+            </script>
+        
+        <link rel="stylesheet" type="text/css" href="css/index.css">
+            
+    </head>
+    
+    <body>
+        
+        <div id="top-bar">
+            <table width="100%">
+                <tr>
+                    <td width="5%">
+                    </td>
+                    <td width="10%" class="about">
+                        <a id="refresh" href="" onclick="refresh();return false;">
+                            refresh
+                        </a>
+                    </td>
+                    <td  width="70%">
+                        SnooP
+                    </td>
+                    <td  width="10%" class="about">
+                        <a href="about.html">
+                            about
+                        </a>
+                    </td>
+                    <td width="5%">
+                    </td>
+                </tr>
+            </table>
+        </div>
+        
+        
+        <div id="message">Preparing...</div>
+        
+        <div class="container">
+            
+            <div id="found-beacons"></div>
+            
+        </div>
+        <!--
+         Including cordova.js will automatically include the JavaScript library
+         for Eddystone.
+         -->
+        <script src="cordova.js"></script>
+        <script src="js/jquery-2.0.3.min.js"></script>
+        <script src="js/jquery.plugin.pullToRefresh.js"></script>
+        
+        <script>
+            // Application code starts here. The code is wrapped in a
+            // function closure to prevent overwriting global objects.
+            (function()
+             {
+             var title = "";
+             var desc = "";
+             // Dictionary of beacons.
+             var beacons = {};
+             
+             // Timer that displays list of beacons.
+             var timer = null;
+             
+                function onDeviceReady()
+                {
+                    // Start tracking beacons!
+                    setTimeout(startScan, 500);
+             
+                    setTimeout(updateBeaconList, 1500); //load only once
+             
+                    // Timer that refreshes the display.
+                    //				timer = setInterval(updateBeaconList, 5000);
+                }
+             
+                document.getElementById("refresh").onclick = function refresh(){
+                document.querySelector("#found-beacons").innerHTML = "";
+                showMessage("Preparing...");
+                onDeviceReady();
+                }
+             
+                function startScan()
+                {
+                    showMessage('Scan in progress.');
+                    evothings.eddystone.startScan(
+                                                  function(beacon)
+                                                  {
+                                                    // Update beacon data.
+                                                    beacon.timeStamp = Date.now();
+                                                    beacons[beacon.address] = beacon;
+                                                  },
+                                                  function(error)
+                                                  {
+                                                    //showMessage('Eddystone scan error: ' + error);
+                                                  });
+                }
+             
+                // Map the RSSI value to a value between 1 and 100.
+                function mapBeaconRSSI(rssi)
+                {
+                    if (rssi >= 0) return 1; // Unknown RSSI maps to 1.
+                    if (rssi < -100) return 100; // Max RSSI
+                    return 100 + rssi;
+                }
+             
+                function getSortedBeaconList(beacons)
+                {
+                    var beaconList = [];
+                    for (var key in beacons)
+                    {
+                        beaconList.push(beacons[key]);
+                    }
+                    beaconList.sort(function(beacon1, beacon2)
+                             {
+                             return mapBeaconRSSI(beacon1.rssi) < mapBeaconRSSI(beacon2.rssi);
+                             });
+                    return beaconList;
+                }
+             
+                function updateBeaconList()
+                {
+                    removeOldBeacons();
+                    displayBeacons();
+                }
+             
+                function removeOldBeacons()
+                {
+                    var timeNow = Date.now();
+                    for (var key in beacons)
+                    {
+                        // Only show beacons updated during the last 60 seconds.
+                        var beacon = beacons[key];
+                        if (beacon.timeStamp - 180000 > timeNow)
+                        {
+                            delete beacons[key];
+                        }
+                    }
+                }
+             
+                function getTitle(url){
+                    url2 = "http://www.whateverorigin.org/get?url="+url+"/info.txt&callback=?";
+                    var xhr = new XMLHttpRequest();
+                    xhr.open("GET", url2, false);
+                    xhr.onreadystatechange = function()
+                    {
+                        if (xhr.readyState == 4 && xhr.status==200)
+                        {
+                            var data = xhr.responseText;
+                            var start = data.search("<title>");
+                            var end = data.search("</title>");
+                            title = data.substring(start+7, end);
+                            start = data.search("<desc>");
+                            end = data.search("</desc>");
+                            desc = data.substring(start+6, end);
+                            //callback();
+                            if(title.length > 0){
+                                return title;
+                                xhr.stop();
+                                xhr.abort();
+                            }
+                        }
+                        xhr.stop();
+                        xhr.abort();
+                    }
+                    xhr.send();
+                }
+             
+                //var title = getTitle("");
+                function displayBeacons()
+                {
+                    var html = "<table class='table'>";
+                    var sortedList = getSortedBeaconList(beacons);
+                    for (var i = 0; i < sortedList.length; ++i)
+                    {
+                        var htmlBeacon = "";
+                        var beacon = sortedList[i];
+             
+                        if(htmlBeaconURL(beacon).includes("tinyurl")){
+                            getTitle(htmlBeaconURL(beacon));
+             
+                            htmlBeacon =
+                            "<tr><td><a class='link' href='#' onclick=\"window.open('"+htmlBeaconURL(beacon)+"', '_system')\">" + "<img class='thumbnails' width='300' src='"+htmlBeaconURL(beacon)+"/image.jpg'/><div><b>"+title+"</b></br>"+desc+"</div></a></tr></td>";
+                            //htmlBeacon =
+                            //"<tr><td><a class='link' href='#' onclick=\"window.open('"+htmlBeaconURL(beacon)+"', '_system')\">" + "<img class='thumbnails' width='300' src='"+htmlBeaconURL(beacon)+"/image.jpg'/><div><b>"+title+"</b></br>"+desc+"</div>, rssi : "+beacon.rssi+"</a></tr></td>";
+                        }
+                        if(htmlBeaconURL(beacon) != ""){
+                            html += htmlBeacon
+                        }
+                    }
+                    html = html + "</table>";
+                    document.querySelector('#found-beacons').innerHTML = html;
+                }
+             
+                function htmlBeaconURL(beacon)
+                {
+                    return beacon.url ?
+                    beacon.url :  '';
+                }
+             
+                function showMessage(text)
+                {
+                    document.querySelector('#message').innerHTML = text;
+                }
+             
+                // This calls onDeviceReady when Cordova has loaded everything.
+                document.addEventListener('deviceready', onDeviceReady, false);
+             
+                $('.container').pullToRefresh({
+                                           callback: function () {
+                                              var deferred = $.Deferred();
+                                           
+                                              setTimeout(function () {
+                                                      document.querySelector("#found-beacons").innerHTML = "";
+                                                      showMessage("Preparing...");
+                                                      onDeviceReady();
+                                                      deferred.resolve();
+                                                      }, 1000);
+                                           
+                                              return deferred.promise();
+                                              }
+                                           });
+            })(); // End of closure.
+            </script>
+    </body>
+    
+</html>

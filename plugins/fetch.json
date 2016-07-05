@@ -1,0 +1,40 @@
+{
+    "cordova-plugin-ble": {
+        "source": {
+            "type": "git",
+            "url": "https://github.com/evothings/cordova-ble",
+            "subdir": "."
+        }
+    },
+    "cordova-plugin-eddystone": {
+        "source": {
+            "type": "git",
+            "url": "https://github.com/evothings/cordova-eddystone",
+            "subdir": "."
+        }
+    },
+    "cordova-plugin-inappbrowser": {
+        "source": {
+            "type": "registry",
+            "id": "cordova-plugin-inappbrowser"
+        },
+        "is_top_level": true,
+        "variables": {}
+    },
+    "cordova-plugin-whitelist": {
+        "source": {
+            "type": "registry",
+            "id": "cordova-plugin-whitelist"
+        },
+        "is_top_level": true,
+        "variables": {}
+    },
+    "cordova-plugin-splashscreen": {
+        "source": {
+            "type": "registry",
+            "id": "cordova-plugin-splashscreen"
+        },
+        "is_top_level": true,
+        "variables": {}
+    }
+}

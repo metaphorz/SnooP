@@ -1,0 +1,88 @@
+{
+    "prepare_queue": {
+        "installed": [],
+        "uninstalled": []
+    },
+    "config_munge": {
+        "files": {
+            "config.xml": {
+                "parents": {
+                    "/*": [
+                        {
+                            "xml": "<feature name=\"BLE\"><param name=\"ios-package\" value=\"EVOBLE\" /></feature>",
+                            "count": 1
+                        },
+                        {
+                            "xml": "<feature name=\"InAppBrowser\"><param name=\"ios-package\" value=\"CDVInAppBrowser\" /></feature>",
+                            "count": 1
+                        },
+                        {
+                            "xml": "<feature name=\"SplashScreen\"><param name=\"ios-package\" value=\"CDVSplashScreen\" /><param name=\"onload\" value=\"true\" /></feature>",
+                            "count": 1
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "installed_plugins": {
+        "cordova-plugin-ble": {
+            "PACKAGE_NAME": "com.atec.urlfinder"
+        },
+        "cordova-plugin-eddystone": {
+            "PACKAGE_NAME": "com.atec.urlfinder"
+        },
+        "cordova-plugin-inappbrowser": {
+            "PACKAGE_NAME": "com.atec.urlfinder"
+        },
+        "cordova-plugin-splashscreen": {
+            "PACKAGE_NAME": "com.atec.urlfinder"
+        },
+        "cordova-plugin-whitelist": {
+            "PACKAGE_NAME": "com.atec.urlfinder"
+        }
+    },
+    "dependent_plugins": {},
+    "modules": [
+        {
+            "file": "plugins/cordova-plugin-ble/ble.js",
+            "id": "cordova-plugin-ble.BLE",
+            "pluginId": "cordova-plugin-ble",
+            "clobbers": [
+                "evothings.ble"
+            ]
+        },
+        {
+            "file": "plugins/cordova-plugin-eddystone/js/eddystone-plugin.js",
+            "id": "cordova-plugin-eddystone.eddystoneplugin",
+            "pluginId": "cordova-plugin-eddystone",
+            "clobbers": [
+                "evothings.eddystone"
+            ]
+        },
+        {
+            "file": "plugins/cordova-plugin-inappbrowser/www/inappbrowser.js",
+            "id": "cordova-plugin-inappbrowser.inappbrowser",
+            "pluginId": "cordova-plugin-inappbrowser",
+            "clobbers": [
+                "cordova.InAppBrowser.open",
+                "window.open"
+            ]
+        },
+        {
+            "file": "plugins/cordova-plugin-splashscreen/www/splashscreen.js",
+            "id": "cordova-plugin-splashscreen.SplashScreen",
+            "pluginId": "cordova-plugin-splashscreen",
+            "clobbers": [
+                "navigator.splashscreen"
+            ]
+        }
+    ],
+    "plugin_metadata": {
+        "cordova-plugin-ble": "1.0.1",
+        "cordova-plugin-eddystone": "1.0.2",
+        "cordova-plugin-inappbrowser": "1.4.0",
+        "cordova-plugin-splashscreen": "3.2.2",
+        "cordova-plugin-whitelist": "1.2.2"
+    }
+}
