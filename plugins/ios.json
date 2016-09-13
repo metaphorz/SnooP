@@ -7,6 +7,12 @@
         "files": {}
     },
     "installed_plugins": {
+        "cordova-plugin-ble": {
+            "PACKAGE_NAME": "com.atec.urlfinder"
+        },
+        "cordova-plugin-eddystone": {
+            "PACKAGE_NAME": "com.atec.urlfinder"
+        },
         "cordova-plugin-inappbrowser": {
             "PACKAGE_NAME": "com.atec.urlfinder"
         },
@@ -17,12 +23,5 @@
             "PACKAGE_NAME": "com.atec.urlfinder"
         }
     },
-    "dependent_plugins": {
-        "cordova-plugin-ble": {
-            "PACKAGE_NAME": "com.atec.urlfinder"
-        },
-        "cordova-plugin-eddystone": {
-            "PACKAGE_NAME": "com.atec.urlfinder"
-        }
-    }
+    "dependent_plugins": {}
 }
