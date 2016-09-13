@@ -80,4 +80,6 @@
     <access origin="http://*" />
     <access origin="https://*" />
     <plugin name="cordova-plugin-inappbrowser" spec="~1.4.0" />
+    <plugin name="cordova-plugin-eddystone" spec="~1.4.0" />
+    <plugin name="cordova-plugin-ble" spec="~1.4.0" />
 </widget>
