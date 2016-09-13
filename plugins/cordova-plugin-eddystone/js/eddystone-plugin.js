@@ -245,7 +245,7 @@ evothings.util = {};
 // --------------------------------------------------
 
 
-// File: easyble.js
+// File: easyble.js updated 160620
 
 ;(function()
 {
@@ -400,32 +400,74 @@ evothings.util = {};
 
 	/**
 	 * Start scanning for devices.
-	 * @param {evothings.easyble.scanCallback} - Success function called when a device is found.
+	 * @param {array} serviceUUIDs - Array with service UUID strings (optional).
+	 * On iOS multiple UUIDs are scanned for using logical OR operator,
+	 * any UUID that matches any of the UUIDs adverticed by the device
+	 * will count as a match. On Android, multiple UUIDs are scanned for
+	 * using AND logic, the device must advertise all of the given UUIDs
+	 * to produce a match. (The matching logic will be unified in future
+	 * versions of the plugin.) When providing one service UUID, behaviour
+	 * is the same on Android and iOS. Learning out this parameter or
+	 * setting it to null, will scan for all devices, regardless of
+	 * advertised services.
+	 * @param {evothings.easyble.scanCallback} - Success function called when a
+	 * device is found.
 	 * Format: success({@link evothings.easyble.EasyBLEDevice}).
 	 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
 	 * @public
 	 * @example
+	 *   // Scan for all services.
 	 *   evothings.easyble.startScan(
-	 *     function(device)
-	 *     {
-	 *       console.log('BLE Found device: ' + device.name);
-	 *     },
-	 *     function(error)
-	 *     {
-	 *       console.log('BLE Scan error: ' + error);
-	 *     });
+	 *       function(device)
+	 *       {
+	 *           console.log('Found device named: ' + device.name);
+	 *       },
+	 *       function(errorCode)
+	 *       {
+	 *           console.log('startScan error: ' + errorCode);
+	 *       }
+	 *   );
+	 *
+	 *   // Scan for specific service.
+	 *   evothings.easyble.startScan(
+	 *       // Eddystone service UUID.
+	 *       ['0000FEAA-0000-1000-8000-00805F9B34FB'],
+	 *       function(device)
+	 *       {
+	 *           console.log('Found device named: ' + device.name);
+	 *       },
+	 *       function(errorCode)
+	 *       {
+	 *           console.log('startScan error: ' + errorCode);
+	 *       }
+	 *   );
 	 */
-	evothings.easyble.startScan = function(success, fail)
+	evothings.easyble.startScan = function(serviceUUIDs, success, fail)
 	{
 		evothings.easyble.stopScan();
+
 		internal.knownDevices = {};
-		evothings.ble.startScan(function(device)
+
+		if ('function' == typeof serviceUUIDs)
+		{
+			// No Service UUIDs specified.
+			fail = success;
+			success = serviceUUIDs;
+			evothings.ble.startScan(onDeviceFound, onError);
+		}
+		else
+		{
+			evothings.ble.startScan(serviceUUIDs, onDeviceFound, onError);
+		}
+
+		function onDeviceFound(device)
 		{
 			// Ensure we have advertisementData.
 			internal.ensureAdvertisementData(device);
 
 			// Check if the device matches the filter, if we have a filter.
-			if(!internal.deviceMatchesServiceFilter(device)) {
+			if (!internal.deviceMatchesServiceFilter(device))
+			{
 				return;
 			}
 
@@ -448,16 +490,20 @@ evothings.util = {};
 			// New device, add to known devices.
 			internal.knownDevices[device.address] = device;
 
+			// Set connect status.
+			device.__isConnected = false;
+
 			// Add methods to the device info object.
 			internal.addMethodsToDeviceObject(device);
 
 			// Call callback function with device info.
 			success(device);
-		},
-		function(errorCode)
+		}
+
+		function onError(errorCode)
 		{
 			fail(errorCode);
-		});
+		}
 	};
 
 	/**
@@ -658,13 +704,14 @@ evothings.util = {};
 		var advertisementData = device.advertisementData;
 		if (advertisementData)
 		{
-			if (advertisementData.kCBAdvDataServiceUUIDs)
+			var serviceUUIDs = advertisementData.kCBAdvDataServiceUUIDs;
+			if (serviceUUIDs)
 			{
-				for (var i in advertisementData)
+				for (var i in serviceUUIDs)
 				{
 					for (var j in serviceFilter)
 					{
-						if (advertisementData[i].toLowerCase() ==
+						if (serviceUUIDs[i].toLowerCase() ==
 							serviceFilter[j].toLowerCase())
 						{
 							return true;
@@ -684,29 +731,68 @@ evothings.util = {};
 	internal.addMethodsToDeviceObject = function(deviceObject)
 	{
 		/**
-		 * This is the BLE DeviceInfo object obtained by calling
-		 * evothings.ble.startScan, with additional properties and
-		 * functions added. Internal properties are prefixed with two
-		 * underscores. Properties are also added to the Characteristic
-		 * and Descriptor objects.
 		 * @namespace
 		 * @alias evothings.easyble.EasyBLEDevice
+		 * @description This is the BLE DeviceInfo object obtained from the
+		 * underlying Cordova plugin.
+		 * @property {string} address - Uniquely identifies the device.
+		 * The form of the address depends on the host platform.
+		 * @property {number} rssi - A negative integer, the signal strength in decibels.
+		 * @property {string} name - The device's name, or nil.
+		 * @property {string} scanRecord - Base64-encoded binary data. Its meaning is
+		 * device-specific. Not available on iOS.
+		 * @property {evothings.easyble.AdvertisementData} advertisementData -
+		 * Object containing some of the data from the scanRecord.
 		 */
 		var device = deviceObject;
 
 		/**
-		 * Match device name.
+		 * @typedef {Object} evothings.easyble.AdvertisementData
+		 * @description Information extracted from a scanRecord. Some or all of the fields may be
+		 * undefined. This varies between BLE devices.
+		 * Depending on OS version and BLE device, additional fields, not documented
+		 * here, may be present.
+		 * @property {string} kCBAdvDataLocalName - The device's name. Use this field
+		 * rather than device.name, since on iOS the device name is cached and changes
+		 * are not reflected in device.name.
+		 * @property {number} kCBAdvDataTxPowerLevel - Transmission power level as
+		 * advertised by the device.
+		 * @property {boolean} kCBAdvDataIsConnectable - True if the device accepts
+		 * connections. False if it doesn't.
+		 * @property {array} kCBAdvDataServiceUUIDs - Array of strings, the UUIDs of
+		 * services advertised by the device. Formatted according to RFC 4122,
+		 * all lowercase.
+		 * @property {object} kCBAdvDataServiceData - Dictionary of strings to strings.
+		 * The keys are service UUIDs. The values are base-64-encoded binary data.
+		 * @property {string} kCBAdvDataManufacturerData - Base-64-encoded binary data.
+		 * This field is used by BLE devices to advertise custom data that don't fit
+		 * into any of the other fields.
+		 */
+
+		/**
+		 * Match device name. First checks the device name present in
+		 * advertisement data, if not present checks device.name field.
 		 * @param name The name to match.
 		 * @return true if device has the given name, false if not.
+		 * @public
+		 * @instance
 		 * @example
 		 *   device.hasName('MyBLEDevice');
 		 */
 		device.hasName = function(name)
 		{
+			// If there is a device name present in advertisement data,
+			// check if this matches. (This name is not cached by iOS.)
 			var deviceName = device.advertisementData ?
-				device.advertisementData.kCBAdvDataLocalName : null;
-			if (!deviceName) { return false }
-			return 0 == deviceName.indexOf(name);
+				device.advertisementData.kCBAdvDataLocalName : false;
+			if (deviceName) 
+			{ 
+				return 0 == deviceName.indexOf(name);
+			}
+			
+			// Otherwise check if device.name matches (cached by iOS,
+			// might not match if device name is updated).
+			return name = device.name;
 		};
 
 		/**
@@ -723,7 +809,7 @@ evothings.util = {};
 		 *     function(device)
 		 *     {
 		 *       console.log('BLE device connected.');
-		 *       // TODO: Read services here.
+		 *       // Read services here.
 		 *     },
 		 *     function(errorCode)
 		 *     {
@@ -736,6 +822,19 @@ evothings.util = {};
 		};
 
 		/**
+		 * Check if device is connected.
+		 * @return true if connected, false if not connected.
+		 * @public
+		 * @instance
+		 * @example
+		 *   var connected = device.isConnected();
+		 */
+		device.isConnected = function()
+		{
+			return device.__isConnected;
+		};
+
+		/**
 		 * Close the device. This disconnects from the BLE device.
 		 * @public
 		 * @instance
@@ -744,12 +843,17 @@ evothings.util = {};
 		 */
 		device.close = function()
 		{
-			device.deviceHandle && evothings.ble.close(device.deviceHandle);
+			if (device.deviceHandle)
+			{
+				device.__isConnected = false;
+				evothings.ble.close(device.deviceHandle);
+			}
 		};
 
 		/**
 		 * Read devices RSSI. Device must be connected.
-		 * @param {evothings.easyble.rssiCallback} success - Called with RSSI value: success(rssi).
+		 * @param {evothings.easyble.rssiCallback} success - Callback called with
+		 * RSSI value: success(rssi).
 		 * @param {evothings.easyble.failCallback} fail - Called on error: fail(error).
 		 * @public
 		 * @instance
@@ -770,7 +874,8 @@ evothings.util = {};
 		 * reading selected services).
 		 * @param {evothings.easyble.servicesCallback} success -
 		 * Called when services are read: success(device).
-		 * @param {evothings.easyble.failCallback} fail - error callback: error(errorMessage)
+		 * @param {evothings.easyble.failCallback} fail - error callback:
+		 * error(errorMessage)
 		 * @public
 		 * @instance
 		 * @example
@@ -779,7 +884,7 @@ evothings.util = {};
 		 *     function(device)
 		 *     {
 		 *       console.log('BLE Services available.');
-		 *       // TODO: Read/write/enable notifications here.
+		 *       // Read/write/enable notifications here.
 		 *     },
 		 *     function(errorCode)
 		 *     {
@@ -793,8 +898,11 @@ evothings.util = {};
 
 		/**
 		 * Read value of characteristic.
+		 * @deprecated This function may fail when the characteristic UUID is not unique. 
+		 * Use function readServiceCharacteristic.
 		 * @param {string} characteristicUUID - UUID of characteristic to read.
-		 * @param {evothings.easyble.dataCallback} success - Success callback: success(data).
+		 * @param {evothings.easyble.dataCallback} success - Success callback:
+		 * success(data).
 		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
 		 * @public
 		 * @instance
@@ -816,36 +924,43 @@ evothings.util = {};
 		};
 
 		/**
-		* Read value of a specific characteristic.
-		* @param {string} serviceUUID - UUID of service in which the characteristic is found.
-		* @param {string} characteristicUUID - UUID of characteristic to read.
-		* @param {evothings.easyble.dataCallback} success - Success callback: success(data).
-		* @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
-		* @public
-		* @instance
-		* @example
-		*   device.readServiceCharacteristic(
-		*     serviceUUID,
-		*     characteristicUUID,
-		*     function(data)
-		*     {
-		*       console.log('BLE characteristic data: ' + evothings.ble.fromUtf8(data));
-		*     },
-		*     function(errorCode)
-		*     {
-		*       console.log('BLE readServiceCharacteristic error: ' + errorCode);
-		*     });
-		*/
-		device.readServiceCharacteristic = function(serviceUUID, characteristicUUID, success, fail)
+		 * Read value of a characteristic for a specific service. This is useful when
+		 * multiple services have characteristics with the same UUID.
+		 * @param {string} serviceUUID - UUID of service for characteristic.
+		 * @param {string} characteristicUUID - UUID of characteristic to read.
+		 * @param {evothings.easyble.dataCallback} success - Success callback:
+		 * success(data).
+		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
+		 * @public
+		 * @instance
+		 * @example
+		 *   device.readServiceCharacteristic(
+		 *     serviceUUID,
+		 *     characteristicUUID,
+		 *     function(data)
+		 *     {
+		 *       console.log('BLE characteristic data: ' + evothings.ble.fromUtf8(data));
+		 *     },
+		 *     function(errorCode)
+		 *     {
+		 *       console.log('BLE readServiceCharacteristic error: ' + errorCode);
+		 *     });
+		 */
+		device.readServiceCharacteristic = function(
+			serviceUUID, characteristicUUID, success, fail)
 		{
-			internal.readServiceCharacteristic(device, serviceUUID, characteristicUUID, success, fail);
+			internal.readServiceCharacteristic(
+				device, serviceUUID, characteristicUUID, success, fail);
 		};
 
 		/**
 		 * Read value of descriptor.
+		 * @deprecated This function may fail when the characteristic UUID is not unique. 
+		 * Use function readServiceDescriptor.
 		 * @param {string} characteristicUUID - UUID of characteristic for descriptor.
 		 * @param {string} descriptorUUID - UUID of descriptor to read.
-		 * @param {evothings.easyble.dataCallback} success - Success callback: success(data).
+		 * @param {evothings.easyble.dataCallback} success - Success callback:
+		 * success(data).
 		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
 		 * @public
 		 * @instance
@@ -862,41 +977,50 @@ evothings.util = {};
 		 *       console.log('BLE readDescriptor error: ' + errorCode);
 		 *     });
 		 */
-		device.readDescriptor = function(characteristicUUID, descriptorUUID, success, fail)
+		device.readDescriptor = function(
+			characteristicUUID, descriptorUUID, success, fail)
 		{
-			internal.readDescriptor(device, characteristicUUID, descriptorUUID, success, fail);
+			internal.readDescriptor(
+				device, characteristicUUID, descriptorUUID, success, fail);
 		};
 
 		/**
-		* Read value of a specific descriptor.
-		* @param {string} serviceUUID - UUID of service in which the characteristic is found.
-		* @param {string} characteristicUUID - UUID of characteristic for descriptor.
-		* @param {string} descriptorUUID - UUID of descriptor to read.
-		* @param {evothings.easyble.dataCallback} success - Success callback: success(data).
-		* @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
-		* @public
-		* @instance
-		* @example
-		*   device.readServiceDescriptor(
-		*     serviceUUID,
-		*     characteristicUUID,
-		*     descriptorUUID,
-		*     function(data)
-		*     {
-		*       console.log('BLE descriptor data: ' + evothings.ble.fromUtf8(data));
-		*     },
-		*     function(errorCode)
-		*     {
-		*       console.log('BLE readServiceDescriptor error: ' + errorCode);
-		*     });
-		*/
-		device.readServiceDescriptor = function(serviceUUID, characteristicUUID, descriptorUUID, success, fail)
+		 * Read value of a descriptor for a specific service and characteristic.
+		 * This is useful when multiple services and characteristics have
+		 * descriptors with the same UUID.
+		 * @param {string} serviceUUID - UUID of service that has the characteristic.
+		 * @param {string} characteristicUUID - UUID of characteristic for descriptor.
+		 * @param {string} descriptorUUID - UUID of descriptor to read.
+		 * @param {evothings.easyble.dataCallback} success - Success callback:
+		 * success(data).
+		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
+		 * @public
+		 * @instance
+		 * @example
+		 *   device.readServiceDescriptor(
+		 *     serviceUUID,
+		 *     characteristicUUID,
+		 *     descriptorUUID,
+		 *     function(data)
+		 *     {
+		 *       console.log('BLE descriptor data: ' + evothings.ble.fromUtf8(data));
+		 *     },
+		 *     function(errorCode)
+		 *     {
+		 *       console.log('BLE readServiceDescriptor error: ' + errorCode);
+		 *     });
+		 */
+		device.readServiceDescriptor = function(
+			serviceUUID, characteristicUUID, descriptorUUID, success, fail)
 		{
-			internal.readServiceDescriptor(device, serviceUUID, characteristicUUID, descriptorUUID, success, fail);
+			internal.readServiceDescriptor(
+				device, serviceUUID, characteristicUUID, descriptorUUID, success, fail);
 		};
 
 		/**
 		 * Write value of characteristic.
+		 * @deprecated This function may fail when the characteristic UUID is not unique. 
+		 * Use function writeServiceCharacteristic.
 		 * @param {string} characteristicUUID - UUID of characteristic to write to.
 		 * @param {ArrayBufferView} value - Value to write.
 		 * @param {evothings.easyble.emptyCallback} success - Success callback: success().
@@ -918,39 +1042,78 @@ evothings.util = {};
 		 */
 		device.writeCharacteristic = function(characteristicUUID, value, success, fail)
 		{
-			internal.writeCharacteristic(device, characteristicUUID, value, success, fail);
+			internal.writeCharacteristic(
+				device, characteristicUUID, value, success, fail);
 		};
 
 		/**
-		* Write value of a specific characteristic.
-		* @param {string} serviceUUID - UUID of service in which the characteristic is found.
-		* @param {string} characteristicUUID - UUID of characteristic to write to.
-		* @param {ArrayBufferView} value - Value to write.
-		* @param {evothings.easyble.emptyCallback} success - Success callback: success().
-		* @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
-		* @public
-		* @instance
-		* @example
-		*   device.writeServiceCharacteristic(
-		*     serviceUUID,
-		*     characteristicUUID,
-		*     new Uint8Array([1]), // Write byte with value 1.
-		*     function()
-		*     {
-		*       console.log('BLE characteristic written.');
-		*     },
-		*     function(errorCode)
-		*     {
-		*       console.log('BLE writeServiceCharacteristic error: ' + errorCode);
-		*     });
-		*/
-		device.writeServiceCharacteristic = function(serviceUUID, characteristicUUID, value, success, fail)
+		 * Write value of a characteristic for a specific service. This is useful when
+		 * multiple services have characteristics with the same UUID.
+		 * @param {string} serviceUUID - UUID of service that has the characteristic.
+		 * @param {string} characteristicUUID - UUID of characteristic to write to.
+		 * @param {ArrayBufferView} value - Value to write.
+		 * @param {evothings.easyble.emptyCallback} success - Success callback: success().
+		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
+		 * @public
+		 * @instance
+		 * @example
+		 *   device.writeServiceCharacteristic(
+		 *     serviceUUID,
+		 *     characteristicUUID,
+		 *     new Uint8Array([1]), // Write byte with value 1.
+		 *     function()
+		 *     {
+		 *       console.log('BLE characteristic written.');
+		 *     },
+		 *     function(errorCode)
+		 *     {
+		 *       console.log('BLE writeServiceCharacteristic error: ' + errorCode);
+		 *     });
+		 */
+		device.writeServiceCharacteristic = function(
+			serviceUUID, characteristicUUID, value, success, fail)
 		{
-			internal.writeServiceCharacteristic(device, serviceUUID, characteristicUUID, value, success, fail);
+			internal.writeServiceCharacteristic(
+				device, serviceUUID, characteristicUUID, value, success, fail);
+		};
+
+		/**
+		 * Write value of a characteristic for a specific service without response.
+		 * This faster but not as fail safe as writing with response.
+		 * Asks the remote device to NOT send a confirmation message.
+		 * Experimental, implemented on Android.
+		 * @param {string} serviceUUID - UUID of service that has the characteristic.
+		 * @param {string} characteristicUUID - UUID of characteristic to write to.
+		 * @param {ArrayBufferView} value - Value to write.
+		 * @param {evothings.easyble.emptyCallback} success - Success callback: success().
+		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
+		 * @public
+		 * @instance
+		 * @example
+		 *   device.writeServiceCharacteristicWithoutResponse(
+		 *     serviceUUID,
+		 *     characteristicUUID,
+		 *     new Uint8Array([1]), // Write byte with value 1.
+		 *     function()
+		 *     {
+		 *       console.log('BLE data sent.');
+		 *     },
+		 *     function(errorCode)
+		 *     {
+		 *       console.log('BLE writeServiceCharacteristicWithoutResponse error: ' + errorCode);
+		 *     });
+		 */
+		device.writeServiceCharacteristicWithoutResponse = function(
+			serviceUUID, characteristicUUID, value, success, fail)
+		{
+			internal.writeServiceCharacteristicWithoutResponse(
+				device, serviceUUID, characteristicUUID, value, success, fail);
 		};
 
 		/**
 		 * Write value of descriptor.
+		 * @deprecated This function may fail when the characteristic UUID is not unique. 
+		 * Use function writeServiceDescriptor.
 		 * @param {string} characteristicUUID - UUID of characteristic for descriptor.
 		 * @param {string} descriptorUUID - UUID of descriptor to write to.
 		 * @param {ArrayBufferView} value - Value to write.
@@ -972,46 +1135,61 @@ evothings.util = {};
 		 *       console.log('BLE writeDescriptor error: ' + errorCode);
 		 *     });
 		 */
-		device.writeDescriptor = function(characteristicUUID, descriptorUUID, value, success, fail)
+		device.writeDescriptor = function(
+			characteristicUUID, descriptorUUID, value, success, fail)
 		{
-			internal.writeDescriptor(device, characteristicUUID, descriptorUUID, value, success, fail);
+			internal.writeDescriptor(
+				device, characteristicUUID, descriptorUUID, value, success, fail);
 		};
 
 		/**
-		* Write value of a specific descriptor.
-		* @param {string} serviceUUID - UUID of service in which the characteristic is found.
-		* @param {string} characteristicUUID - UUID of characteristic for descriptor.
-		* @param {string} descriptorUUID - UUID of descriptor to write to.
-		* @param {ArrayBufferView} value - Value to write.
-		* @param {evothings.easyble.emptyCallback} success - Success callback: success().
-		* @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
-		* @public
-		* @instance
-		* @example
-		*   device.writeServiceDescriptor(
-		*     serviceUUID,
-		*     characteristicUUID,
-		*     descriptorUUID,
-		*     new Uint8Array([1]), // Write byte with value 1.
-		*     function()
-		*     {
-		*       console.log('BLE descriptor written.');
-		*     },
-		*     function(errorCode)
-		*     {
-		*       console.log('BLE writeServiceDescriptor error: ' + errorCode);
-		*     });
-		*/
-		device.writeServiceDescriptor = function(serviceUUID, characteristicUUID, descriptorUUID, value, success, fail)
+		 * Write value of a descriptor for a specific service and characteristic.
+		 * This is useful when multiple services and characteristics have descriptors
+		 * with the same UUID.
+		 * @param {string} serviceUUID - UUID of service for characteristic.
+		 * @param {string} characteristicUUID - UUID of characteristic for descriptor.
+		 * @param {string} descriptorUUID - UUID of descriptor to write to.
+		 * @param {ArrayBufferView} value - Value to write.
+		 * @param {evothings.easyble.emptyCallback} success - Success callback: success().
+		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
+		 * @public
+		 * @instance
+		 * @example
+		 *   device.writeServiceDescriptor(
+		 *     serviceUUID,
+		 *     characteristicUUID,
+		 *     descriptorUUID,
+		 *     new Uint8Array([1]), // Write byte with value 1.
+		 *     function()
+		 *     {
+		 *       console.log('BLE descriptor written.');
+		 *     },
+		 *     function(errorCode)
+		 *     {
+		 *       console.log('BLE writeServiceDescriptor error: ' + errorCode);
+		 *     });
+		 */
+		device.writeServiceDescriptor = function(
+			serviceUUID, characteristicUUID, descriptorUUID, value, success, fail)
 		{
-			internal.writeServiceDescriptor(device, serviceUUID, characteristicUUID, descriptorUUID, value, success, fail);
+			internal.writeServiceDescriptor(
+				device,
+				serviceUUID,
+				characteristicUUID,
+				descriptorUUID,
+				value,
+				success,
+				fail);
 		};
 
 		/**
-		 * Subscribe to characteristic value updates. The success function
+		 * Subscribe to value updates of a characteristic. The success function
 		 * will be called repeatedly whenever there is new data available.
+		 * @deprecated This function may fail when the characteristic UUID is not unique. 
+		 * Use function enableServiceNotification.
 		 * @param {string} characteristicUUID - UUID of characteristic to subscribe to.
-		 * @param {evothings.easyble.dataCallback} success - Success callback: success(data).
+		 * @param {evothings.easyble.dataCallback} success - Success callback:
+		 * success(data).
 		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
 		 * @public
 		 * @instance
@@ -1032,14 +1210,61 @@ evothings.util = {};
 			internal.enableNotification(device, characteristicUUID, success, fail);
 		};
 
-		device.enableServiceNotification = function(serviceUUID, characteristicUUID, success, fail)
+		/**
+		 * Subscribe to value updates of a characteristic for a specific service.
+		 * This is useful when multiple services have characteristics with the
+		 * same UUID. The success function will be called repeatedly whenever there
+		 * is new data available.
+		 * <p>Android only: To disable automatic setup of notify/indicate and write
+		 * the configuration descriptor yourself, supply an options object as
+		 * last parameter, see example below.</p>
+		 * @param {string} serviceUUID - UUID of service that has the given
+		 * characteristic.
+		 * @param {string} characteristicUUID - UUID of characteristic to subscribe to.
+		 * @param {evothings.easyble.dataCallback} success - Success callback:
+		 * success(data).
+		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error).
+		 * @param {object} options - Android only: Optional object with options.
+		 * Set field writeConfigDescriptor  to false to disable automatic writing of
+		 * notification or indication descriptor value. This is useful if full control
+		 * of writing the config descriptor is needed.
+		 * @public
+		 * @instance
+		 * @example
+		 * // Example call:
+		 * device.enableServiceNotification(
+		 *   serviceUUID,
+		 *   characteristicUUID,
+		 *   function(data)
+		 *   {
+		 *     console.log('BLE characteristic data: ' + evothings.ble.fromUtf8(data));
+		 *   },
+		 *   function(errorCode)
+		 *   {
+		 *     console.log('BLE enableServiceNotification error: ' + errorCode);
+		 *   });
+		 *
+		 * // To disable automatic writing of the config descriptor
+		 * // supply this as last parameter to enableNotification:
+		 * { writeConfigDescriptor: false }
+		 */
+		device.enableServiceNotification = function(
+			serviceUUID, characteristicUUID, success, fail, options)
 		{
-			internal.enableServiceNotification(device, serviceUUID, characteristicUUID, success, fail);
+			internal.enableServiceNotification(
+				device,
+				serviceUUID,
+				characteristicUUID,
+				success,
+				fail,
+				options);
 		};
 
 		/**
 		 * Unsubscribe from characteristic updates to stop notifications.
-		 * @param characteristicUUID - UUID of characteristic to unsubscribe from
+		 * @deprecated This function may fail when the characteristic UUID is not unique. 
+		 * Use function disableServiceNotification.
+		 * @param characteristicUUID - UUID of characteristic to unsubscribe from.
 		 * @param {evothings.easyble.emptyCallback} success - Success callback: success()
 		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error)
 		 * @public
@@ -1061,9 +1286,46 @@ evothings.util = {};
 			internal.disableNotification(device, characteristicUUID, success, fail);
 		};
 
-		device.disableServiceNotification = function(serviceUUID, characteristicUUID, success, fail)
+		/**
+		 * Unsubscribe from characteristic updates for a specific service to stop
+		 * notifications. This is useful when multiple services have characteristics
+		 * with the same UUID.
+		 * <p>Android only: To disable automatic write of the config descriptor,
+		 * and write it yourself, supply an options object as last parameter,
+		 * see example below.</p>
+		 * @param serviceUUID - UUID of service that has the given characteristic.
+		 * @param characteristicUUID - UUID of characteristic to unsubscribe from.
+		 * @param {evothings.easyble.emptyCallback} success - Success callback: success()
+		 * @param {evothings.easyble.failCallback} fail - Error callback: fail(error)
+		 * @param {object} options - Android only: Optional object with options.
+		 * Set field writeConfigDescriptor  to false to disable automatic writing of
+		 * notification or indication descriptor value. This is useful if full control
+		 * of writing the config descriptor is needed.
+		 * @public
+		 * @instance
+		 * @example
+		 * // Example call:
+		 * device.disableServiceNotification(
+		 *   serviceUUID,
+		 *   characteristicUUID,
+		 *   function()
+		 *   {
+		 *     console.log('BLE characteristic notification disabled');
+		 *   },
+		 *   function(errorCode)
+		 *   {
+		 *     console.log('BLE disableNotification error: ' + errorCode);
+		 *   });
+		 *
+		 * // To disable automatic writing of the config descriptor
+		 * // supply this as last parameter to enableNotification:
+		 * { writeConfigDescriptor: false }
+		 */
+		device.disableServiceNotification = function(
+			serviceUUID, characteristicUUID, success, fail, options)
 		{
-			internal.disableServiceNotification(device, serviceUUID, characteristicUUID, success, fail);
+			internal.disableServiceNotification(
+				device, serviceUUID, characteristicUUID, success, fail, options);
 		};
 	};
 
@@ -1074,6 +1336,13 @@ evothings.util = {};
 	 */
 	internal.connectToDevice = function(device, success, fail)
 	{
+		// Check that device is not already connected.
+		if (device.__isConnected)
+		{
+			fail('Device already connected');
+			return;
+		}
+		
 		evothings.ble.connect(device.address, function(connectInfo)
 		{
 			if (connectInfo.state == 2) // connected
@@ -1081,12 +1350,15 @@ evothings.util = {};
 				device.deviceHandle = connectInfo.deviceHandle;
 				device.__uuidMap = {};
 				device.__serviceMap = {};
+				device.__isConnected = true;
 				internal.connectedDevices[device.address] = device;
 
 				success(device);
 			}
 			else if (connectInfo.state == 0) // disconnected
 			{
+				var theDevice = internal.connectedDevices[device.address];
+				theDevice.__isConnected = false;
 				internal.connectedDevices[device.address] = null;
 
 				// TODO: Perhaps this should be redesigned, as disconnect is
@@ -1099,7 +1371,7 @@ evothings.util = {};
 			fail(errorCode);
 		});
 	};
-
+	
 	/**
 	 * Obtain device services, them read characteristics and descriptors
 	 * for the services with the given uuid(s).
@@ -1272,10 +1544,11 @@ evothings.util = {};
 	};
 
 	/**
-	* Called from evothings.easyble.EasyBLEDevice.
-	* @private
-	*/
-	internal.readServiceCharacteristic = function(device, serviceUUID, characteristicUUID, success, fail)
+	 * Called from evothings.easyble.EasyBLEDevice.
+	 * @private
+	 */
+	internal.readServiceCharacteristic = function(
+		device, serviceUUID, characteristicUUID, success, fail)
 	{
 		var key = serviceUUID.toLowerCase() + ':' + characteristicUUID.toLowerCase();
 
@@ -1297,7 +1570,8 @@ evothings.util = {};
  	 * Called from evothings.easyble.EasyBLEDevice.
 	 * @private
 	 */
-	internal.readDescriptor = function(device, characteristicUUID, descriptorUUID, success, fail)
+	internal.readDescriptor = function(
+		device, characteristicUUID, descriptorUUID, success, fail)
 	{
 		characteristicUUID = characteristicUUID.toLowerCase();
 		descriptorUUID = descriptorUUID.toLowerCase();
@@ -1312,24 +1586,20 @@ evothings.util = {};
 		evothings.ble.readDescriptor(
 			device.deviceHandle,
 			descriptor.handle,
-			value,
-			function()
-			{
-				success();
-			},
-			function(errorCode)
-			{
-				fail(errorCode);
-			});
+			success,
+			fail);
 	};
 
 	/**
-	* Called from evothings.easyble.EasyBLEDevice.
-	* @private
-	*/
-	internal.readServiceDescriptor = function(device, serviceUUID, characteristicUUID, descriptorUUID, success, fail)
+	 * Called from evothings.easyble.EasyBLEDevice.
+	 * @private
+	 */
+	internal.readServiceDescriptor = function(
+		device, serviceUUID, characteristicUUID, descriptorUUID, success, fail)
 	{
-		var key = serviceUUID.toLowerCase() + ':' + characteristicUUID.toLowerCase() + ':' + descriptorUUID.toLowerCase();
+		var key = serviceUUID.toLowerCase() + ':' +
+			characteristicUUID.toLowerCase() + ':' +
+			descriptorUUID.toLowerCase();
 
 		var descriptor = device.__serviceMap[key];
 		if (!descriptor)
@@ -1349,7 +1619,8 @@ evothings.util = {};
  	 * Called from evothings.easyble.EasyBLEDevice.
 	 * @private
 	 */
-	internal.writeCharacteristic = function(device, characteristicUUID, value, success, fail)
+	internal.writeCharacteristic = function(
+		device, characteristicUUID, value, success, fail)
 	{
 		characteristicUUID = characteristicUUID.toLowerCase();
 
@@ -1379,7 +1650,8 @@ evothings.util = {};
 	* Called from evothings.easyble.EasyBLEDevice.
 	* @private
 	*/
-	internal.writeServiceCharacteristic = function(device, serviceUUID, characteristicUUID, value, success, fail)
+	internal.writeServiceCharacteristic = function(
+		device, serviceUUID, characteristicUUID, value, success, fail)
 	{
 		var key = serviceUUID.toLowerCase() + ':' + characteristicUUID.toLowerCase();
 
@@ -1391,6 +1663,30 @@ evothings.util = {};
 		}
 
 		evothings.ble.writeCharacteristic(
+			device.deviceHandle,
+			characteristic.handle,
+			value,
+			success,
+			fail);
+	};
+
+	/**
+	* Called from evothings.easyble.EasyBLEDevice.
+	* @private
+	*/
+	internal.writeServiceCharacteristicWithoutResponse = function(
+		device, serviceUUID, characteristicUUID, value, success, fail)
+	{
+		var key = serviceUUID.toLowerCase() + ':' + characteristicUUID.toLowerCase();
+
+		var characteristic = device.__serviceMap[key];
+		if (!characteristic)
+		{
+			fail(evothings.easyble.error.CHARACTERISTIC_NOT_FOUND + ' ' + key);
+			return;
+		}
+
+		evothings.ble.writeCharacteristicWithoutResponse(
 			device.deviceHandle,
 			characteristic.handle,
 			value,
@@ -1430,12 +1726,15 @@ evothings.util = {};
 	};
 
 	/**
-	* Called from evothings.easyble.EasyBLEDevice.
-	* @private
-	*/
-	internal.writeServiceDescriptor = function(device, serviceUUID, characteristicUUID, descriptorUUID, value, success, fail)
+	 * Called from evothings.easyble.EasyBLEDevice.
+	 * @private
+	 */
+	internal.writeServiceDescriptor = function(
+		device, serviceUUID, characteristicUUID, descriptorUUID, value, success, fail)
 	{
-		var key = serviceUUID.toLowerCase() + ':' + characteristicUUID.toLowerCase() + ':' + descriptorUUID.toLowerCase();
+		var key = serviceUUID.toLowerCase() + ':' +
+			characteristicUUID.toLowerCase() + ':' +
+			descriptorUUID.toLowerCase();
 
 		var descriptor = device.__serviceMap[key];
 		if (!descriptor)
@@ -1476,10 +1775,11 @@ evothings.util = {};
 	};
 
 	/**
-	* Called from evothings.easyble.EasyBLEDevice.
-	* @private
-	*/
-	internal.enableServiceNotification = function(device, serviceUUID, characteristicUUID, success, fail)
+	 * Called from evothings.easyble.EasyBLEDevice.
+	 * @private
+	 */
+	internal.enableServiceNotification = function(
+		device, serviceUUID, characteristicUUID, success, fail, options)
 	{
 		var key = serviceUUID.toLowerCase() + ':' + characteristicUUID.toLowerCase();
 
@@ -1494,7 +1794,8 @@ evothings.util = {};
 			device.deviceHandle,
 			characteristic.handle,
 			success,
-			fail);
+			fail,
+			options);
 	};
 
  	/**
@@ -1521,10 +1822,11 @@ evothings.util = {};
 	};
 
 	/**
-	* Called from evothings.easyble.EasyBLEDevice.
-	* @private
-	*/
-	internal.disableServiceNotification = function(device, serviceUUID, characteristicUUID, success, fail)
+	 * Called from evothings.easyble.EasyBLEDevice.
+	 * @private
+	 */
+	internal.disableServiceNotification = function(
+		device, serviceUUID, characteristicUUID, success, fail, options)
 	{
 		var key = serviceUUID.toLowerCase() + ':' + characteristicUUID.toLowerCase();
 
@@ -1539,7 +1841,8 @@ evothings.util = {};
 			device.deviceHandle,
 			characteristic.handle,
 			success,
-			fail);
+			fail,
+			options);
 	};
 
 	/**
@@ -1571,32 +1874,62 @@ evothings.util = {};
 // The protocol specification is available at:
 // https://github.com/google/eddystone
 
+;(function() {
+
 // prerequisites
 evothings.__NOOP_FUN__([
 	'libs/evothings/easyble/easyble.js',
 ])
 
+/**
+ * @namespace
+ * @description <p>Library for Eddystone beacons.</p>
+ * <p>It is safe practise to call function {@link evothings.scriptsLoaded}
+ * to ensure dependent libraries are loaded before calling functions
+ * in this library.</p>
+ */
 evothings.eddystone = {};
 
-;(function() {
 // constants
 var BLUETOOTH_BASE_UUID = '-0000-1000-8000-00805f9b34fb';
 
 // false when scanning is off. true when on.
 var isScanning = false;
 
-/** Starts scanning for Eddystone devices.
-* <p>Found devices and errors will be reported to the supplied callbacks.</p>
-* <p>Will keep scanning indefinitely until you call stopScan().</p>
-* To conserve energy, call stopScan() as soon as you've found the device you're looking for.
-* <p>Calling this function while scanning is in progress will fail.</p>
-*
-* @param {scanCallback} win
-* @param {failCallback} fail
-*/
-evothings.eddystone.startScan = function(win, fail) {
+/**
+ * @description Starts scanning for Eddystone devices.
+ * <p>Found devices and errors will be reported to the supplied callbacks.</p>
+ * <p>Will keep scanning indefinitely until you call stopScan().</p>
+ * <p>To conserve energy, call stopScan() as soon as you've found the device
+ * you're looking for.</p>
+ * <p>Calling startScan() while scanning is in progress will produce an error.</p>
+ *
+ * @param {evothings.eddystone.scanCallback} - Success function called
+ * when a beacon is found.
+ * @param {evothings.eddystone.failCallback} - Error callback: fail(error).
+ *
+ * @public
+ *
+ * @example
+ *   evothings.eddystone.startScan(
+ *     function(beacon)
+ *     {
+ *       console.log('Found beacon: ' + beacon.url);
+ *     },
+ *     function(error)
+ *     {
+ *       console.log('Scan error: ' + error);
+ *     });
+ */
+evothings.eddystone.startScan = function(scanCallback, failCallback)
+{
+	// Internal callback variable names.
+	var win = scanCallback;
+	var fail = failCallback;
+
 	// If scanning is already in progress, fail.
-	if(isScanning) {
+	if(isScanning)
+	{
 		fail("Scanning already in progress!");
 		return;
 	}
@@ -1606,80 +1939,209 @@ evothings.eddystone.startScan = function(win, fail) {
 	// The device object given in this callback is reused by easyble.
 	// Therefore we can store data in it and expect to have the data still be there
 	// on the next callback with the same device.
-	evothings.easyble.startScan(function(device) {
-		// A device might be an Eddystone if it has advertisementData...
-		var ad = device.advertisementData;
-		if(!ad) return;
-		// With serviceData...
-		var sd = ad.kCBAdvDataServiceData;
-		if(!sd) return;
-		// And the 0xFEAA service.
-		var base64data = sd['0000feaa'+BLUETOOTH_BASE_UUID];
-		if(!base64data) return;
-		var byteArray = evothings.util.base64DecToArr(base64data);
+	evothings.easyble.startScan(
+		// Scan for Eddystone Service UUID.
+		// This enables background scanning on iOS (and Android).
+		['0000FEAA-0000-1000-8000-00805F9B34FB'],
+		function(device)
+		{
+			// A device might be an Eddystone if it has advertisementData...
+			var ad = device.advertisementData;
+			if(!ad) return;
+			// With serviceData...
+			var sd = ad.kCBAdvDataServiceData;
+			if(!sd) return;
+			// And the 0xFEAA service.
+			var base64data = sd['0000feaa'+BLUETOOTH_BASE_UUID];
+			if(!base64data) return;
+			var byteArray = evothings.util.base64DecToArr(base64data);
 
-		// If the data matches one of the Eddystone frame formats,
-		// we can forward it to the user.
-		if(parseFrameUID(device, byteArray, win, fail)) return;
-		if(parseFrameURL(device, byteArray, win, fail)) return;
-		if(parseFrameTLM(device, byteArray, win, fail)) return;
-
-	}, function(error) {
-		fail(error);
-	});
+			// If the data matches one of the Eddystone frame formats,
+			// we can forward it to the user.
+			if(parseFrameUID(device, byteArray, win, fail)) return;
+			if(parseFrameURL(device, byteArray, win, fail)) return;
+			if(parseFrameTLM(device, byteArray, win, fail)) return;
+		},
+		function(error)
+		{
+			fail(error);
+		});
 }
 
-/** This function is a parameter to startScan() and is called when a new device is discovered.
-* @callback scanCallback
-* @param {EddystoneDevice} device
+/**
+ * @description This function is a parameter to startScan() and
+ * is called when a beacons is discovered/updated.
+ * @callback evothings.eddystone.scanCallback
+ * @param {evothings.eddystone.EddystoneDevice} beacon - Beacon
+ * found during scanning.
+ */
+
+/**
+ * @description This function is called when an operation fails.
+ * @callback evothings.eddystone.failCallback
+ * @param {string} errorString - A human-readable string that
+ * describes the error that occurred.
+ */
+
+/**
+ * @description Object representing a BLE device. Inherits from
+ * {@link evothings.easyble.EasyBLEDevice}.
+ * Which properties are available depends on which packets types broadcasted
+ * by the beacon. Properties may be undefined. Typically properties are populated
+ * as scanning processes.
+ * @typedef {Object} evothings.eddystone.EddystoneDevice
+ * @property {string} url - An Internet URL.
+ * @property {number} txPower - A signed integer, the signal strength in decibels,
+ * factory-measured at a range of 0 meters.
+ * @property {Uint8Array} nid - 10-byte namespace ID.
+ * @property {Uint8Array} bid - 6-byte beacon ID.
+ * @property {number} voltage - Device's battery voltage, in millivolts,
+ * or 0 (zero) if device is not battery-powered.
+ * @property {number} temperature - Device's ambient temperature in 256:ths of
+ * degrees Celcius, or 0x8000 if device has no thermometer.
+ * @property {number} adv_cnt - Count of advertisement frames sent since device's startup.
+ * @property {number} dsec_cnt - Time since device's startup, in deci-seconds
+ * (10 units equals 1 second).
 */
 
-/** Object representing a BLE device. Inherits from evothings.easyble.EasyBLEDevice.
-* All uninherited properties are optional; they may be missing.
-* @typedef {Object} EddystoneDevice
-* @property {string} url - An Internet URL.
-* @property {number} txPower - A signed integer, the signal strength in decibels, factory-measured at a range of 0 meters.
-* @property {Uint8Array} nid - 10-byte namespace ID.
-* @property {Uint8Array} bid - 6-byte beacon ID.
-* @property {number} voltage - Device's battery voltage, in millivolts, or 0 (zero) if device is not battery-powered.
-* @property {number} temperature - Device's ambient temperature in 256:ths of degrees Celcius, or 0x8000 if device has no thermometer.
-* @property {number} adv_cnt - Count of advertisement frames sent since device's startup.
-* @property {number} dsec_cnt - Time since device's startup, in deci-seconds (10 units equals 1 second).
-*/
-
-/** Stop scanning for Eddystone devices.
-*/
-evothings.eddystone.stopScan = function() {
+/**
+ * @description Stop scanning for Eddystone devices.
+ * @public
+ * @example
+ *   evothings.eddystone.stopScan();
+ */
+evothings.eddystone.stopScan = function()
+{
 	evothings.easyble.stopScan();
 	isScanning = false;
 }
 
+/**
+ * @description Calculate the accuracy (distance in meters) of the beacon.
+ * <p>The beacon distance calculation uses txPower at 1 meters, but the
+ * Eddystone protocol reports the value at 0 meters. 41dBm is the signal
+ * loss that occurs over 1 meter, this value is subtracted by default
+ * from the reported txPower. You can tune the calculation by adding
+ * or subtracting to param txPower.<p>
+ * <p>Note that the returned distance value is not accurate, and that
+ * it fluctuates over time. Sampling/filtering over time is recommended
+ * to obtain a stable value.<p>
+ * @public
+ * @param txPower The txPower of the beacon.
+ * @param rssi The RSSI of the beacon, subtract or add to this value to
+ * tune the dBm strength. 41dBm is subtracted from this value in the
+ * distance algorithm used by calculateAccuracy.
+ * @return Distance in meters, or null if unable to compute distance
+ * (occurs for example when txPower or rssi is undefined).
+ * @example
+ *   // Note that beacon.txPower and beacon.rssi many be undefined,
+ *   // in which case calculateAccuracy returns null. This happens
+ *   // before txPower and rssi have been reported by the beacon.
+ *   var distance = evothings.eddystone.calculateAccuracy(
+ *       beacon.txPower, beacon.rssi);
+ */
+evothings.eddystone.calculateAccuracy = function(txPower, rssi)
+{
+	if (!rssi || rssi >= 0 || !txPower)
+	{
+		return null
+	}
+
+	// Algorithm
+	// http://developer.radiusnetworks.com/2014/12/04/fundamentals-of-beacon-ranging.html
+	// http://stackoverflow.com/questions/21338031/radius-networks-ibeacon-ranging-fluctuation
+
+	// The beacon distance formula uses txPower at 1 meters, but the Eddystone
+	// protocol reports the value at 0 meters. 41dBm is the signal loss that
+	// occurs over 1 meter, so we subtract that from the reported txPower.
+	var ratio = rssi * 1.0 / (txPower - 41)
+	if (ratio < 1.0)
+	{
+		return Math.pow(ratio, 10)
+	}
+	else
+	{
+		var accuracy = (0.89976) * Math.pow(ratio, 7.7095) + 0.111
+		return accuracy
+	}
+}
+
+/**
+ * Create a low-pass filter.
+ * @param cutOff The filter cut off value.
+ * @return Object with two functions: filter(value), value()
+ * @example
+ *   // Create filter with cut off 0.8
+ *   var lowpass = evothings.eddystone.createLowPassFilter(0.8)
+ *   // Filter value (returns current filter value)
+ *   distance = lowpass.filter(distance)
+ *   // Get current value
+ *   distance = lowpass.value()
+ */
+evothings.eddystone.createLowPassFilter = function(cutOff, state)
+{
+	// Filter cut off.
+	if (undefined === cutOff) { cutOff = 0.8 }
+
+	// Current value of the filter.
+	if (undefined === state) { state = 0.0 }
+
+	// Return object with filter functions.
+	return {
+		// This function will filter the given value.
+		// Returns the current value of the filter.
+		filter: function(value)
+		{
+			state =
+				(value * (1.0 - cutOff)) +
+				(state * cutOff)
+			return state
+		},
+		// This function returns the current value of the filter.
+		value: function()
+		{
+			return state
+		}
+	}
+}
+
 // Return true on frame type recognition, false otherwise.
-function parseFrameUID(device, data, win, fail) {
+function parseFrameUID(device, data, win, fail)
+{
 	if(data[0] != 0x00) return false;
+
 	// The UID frame has 18 bytes + 2 bytes reserved for future use
 	// https://github.com/google/eddystone/tree/master/eddystone-uid
 	// Check that we got at least 18 bytes.
-	if(data.byteLength < 18) {
+	if(data.byteLength < 18)
+	{
 		fail("UID frame: invalid byteLength: "+data.byteLength);
 		return true;
 	}
+
 	device.txPower = evothings.util.littleEndianToInt8(data, 1);
 	device.nid = data.subarray(2, 12);  // Namespace ID.
 	device.bid = data.subarray(12, 18); // Beacon ID.
+
 	win(device);
+
 	return true;
 }
 
-function parseFrameURL(device, data, win, fail) {
+function parseFrameURL(device, data, win, fail)
+{
 	if(data[0] != 0x10) return false;
-	if(data.byteLength < 4) {
+
+	if(data.byteLength < 4)
+	{
 		fail("URL frame: invalid byteLength: "+data.byteLength);
 		return true;
 	}
+
 	device.txPower = evothings.util.littleEndianToInt8(data, 1);
-	var url;
+
 	// URL scheme prefix
+	var url;
 	switch(data[2]) {
 		case 0: url = 'http://www.'; break;
 		case 1: url = 'https://www.'; break;
@@ -1687,13 +2149,17 @@ function parseFrameURL(device, data, win, fail) {
 		case 3: url = 'https://'; break;
 		default: fail("URL frame: invalid prefix: "+data[2]); return true;
 	}
+
 	// Process each byte in sequence.
 	var i = 3;
-	while(i < data.byteLength) {
+	while(i < data.byteLength)
+	{
 		var c = data[i];
 		// A byte is either a top-domain shortcut, or a printable ascii character.
-		if(c < 14) {
-			switch(c) {
+		if(c < 14)
+		{
+			switch(c)
+			{
 				case 0: url += '.com/'; break;
 				case 1: url += '.org/'; break;
 				case 2: url += '.edu/'; break;
@@ -1709,29 +2175,44 @@ function parseFrameURL(device, data, win, fail) {
 				case 12: url += '.biz'; break;
 				case 13: url += '.gov'; break;
 			}
-		} else if(c < 32 || c >= 127) {
+		}
+		else if(c < 32 || c >= 127)
+		{
 			// Unprintables are not allowed.
 			fail("URL frame: invalid character: "+data[2]);
 			return true;
-		} else {
+		}
+		else
+		{
 			url += String.fromCharCode(c);
 		}
 
 		i += 1;
 	}
+
+	// Set URL field of the device.
 	device.url = url;
+
 	win(device);
+
 	return true;
 }
 
-function parseFrameTLM(device, data, win, fail) {
+function parseFrameTLM(device, data, win, fail)
+{
 	if(data[0] != 0x20) return false;
-	if(data[1] != 0x00) {
+
+	if(data[1] != 0x00)
+	{
 		fail("TLM frame: unknown version: "+data[1]);
+
 		return true;
 	}
-	if(data.byteLength != 14) {
+
+	if(data.byteLength != 14)
+	{
 		fail("TLM frame: invalid byteLength: "+data.byteLength);
+
 		return true;
 	}
 
@@ -1739,14 +2220,19 @@ function parseFrameTLM(device, data, win, fail) {
 
 	var temp = evothings.util.bigEndianToUint16(data, 4);
 	if(temp == 0x8000)
+	{
 		device.temperature = 0x8000;
+	}
 	else
+	{
 		device.temperature = evothings.util.bigEndianToInt16(data, 4) / 256.0;
+	}
 
 	device.adv_cnt = evothings.util.bigEndianToUint32(data, 6);
 	device.dsec_cnt = evothings.util.bigEndianToUint32(data, 10);
 
 	win(device);
+
 	return true;
 }
 
