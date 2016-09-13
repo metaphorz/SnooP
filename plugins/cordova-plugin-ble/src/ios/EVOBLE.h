@@ -80,6 +80,7 @@ typedef void (^EVOCommandBlock)(void);
 @property CBCentralManager* central;
 @property NSMutableDictionary* peripherals;
 @property BOOL scanIsWaiting;
+@property NSArray* scanIsWaitingServices;
 @property NSString* scanCallbackId;
 
 // Public Cordova API.
@@ -94,6 +95,7 @@ typedef void (^EVOCommandBlock)(void);
 - (void) readCharacteristic: (CDVInvokedUrlCommand*)command;
 - (void) readDescriptor: (CDVInvokedUrlCommand*)command;
 - (void) writeCharacteristic: (CDVInvokedUrlCommand*)command;
+- (void) writeCharacteristicWithoutResponse: (CDVInvokedUrlCommand*)command;
 - (void) writeDescriptor: (CDVInvokedUrlCommand*)command;
 - (void) enableNotification: (CDVInvokedUrlCommand*)command;
 - (void) disableNotification: (CDVInvokedUrlCommand*)command;
