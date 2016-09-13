@@ -6,8 +6,8 @@ html,body{
 #top-bar{
     width: 100%;
     text-align: center;
-    padding: 15px 0;
-    background: #3572E3;
+    padding: 15px 0px 5px 0px;
+    background: #FF7F00;
     color: white;
     box-shadow: 0 1px 2px #343434;
     font-size: 1.3em;
@@ -29,9 +29,12 @@ html,body{
     -ms-user-select: none;
     user-select: none;
 }
+.header{
+    font-size: 25px;
+}
 #message{
     padding: 5px 15px;
-    background: rgba(29, 76, 165, 0.87);
+    background: #AB5500;
     color: #CBDAF6;
 }
 .container{
@@ -57,16 +60,20 @@ html,body{
     overflow: auto;
     -webkit-overflow-scrolling: touch;
 }
-
+a{
+    color: #333;
+    text-decoration: none;
+}
+.about{
+    font-size: 17.5px;
+    color: #ffffff;
+    text-align: right;
+}
 .about-text{
     padding: 5px;
     align-items: center;
     justify-content: center;
     text-align: center;
-}
-.about{
-    font-size: 15px;
-    text-align: right;
 }
 .home_back{
     font-size: 15px;
@@ -79,6 +86,13 @@ html,body{
     border-left: 0px solid #3572E3;
     display: block;
 }
+.distance{
+    font-size: 10px;
+    align-items: right;
+    justify-content: right;
+    text-align: right;
+    align: right;
+}
 .table{
     margin-left: auto;
     margin-right: auto;
@@ -90,12 +104,6 @@ img.thumbnails{
     align-items: center;
     justify-content: center;
 }
-a{
-    color: #333;
-    text-decoration: none;
-}
-
-
 .pull-to-refresh {
     line-height: 50px;
     height: 50px;
